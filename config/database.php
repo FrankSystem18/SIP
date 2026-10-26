@@ -30,9 +30,9 @@ if (file_exists($envFile) && is_readable($envFile)) {
 
 $db_host     = getenv('DB_HOST') ?: ($_ENV['DB_HOST'] ?? ($_SERVER['DB_HOST'] ?? (defined('DB_HOST') ? DB_HOST : 'localhost')));
 $db_port     = getenv('DB_PORT') ?: ($_ENV['DB_PORT'] ?? ($_SERVER['DB_PORT'] ?? (defined('DB_PORT') ? DB_PORT : '5432')));
-$db_name     = getenv('DB_NAME') ?: ($_ENV['DB_NAME'] ?? ($_SERVER['DB_NAME'] ?? (defined('DB_NAME') ? DB_NAME : 'unefa_postgrados')));
+$db_name     = getenv('DB_NAME') ?: ($_ENV['DB_NAME'] ?? ($_SERVER['DB_NAME'] ?? (defined('DB_NAME') ? DB_NAME : 'unefa_postgrado')));
 $db_user     = getenv('DB_USER') ?: ($_ENV['DB_USER'] ?? ($_SERVER['DB_USER'] ?? (defined('DB_USER') ? DB_USER : 'postgres')));
-$db_password = getenv('DB_PASSWORD') ?: ($_ENV['DB_PASSWORD'] ?? ($_SERVER['DB_PASSWORD'] ?? (defined('DB_PASSWORD') ? DB_PASSWORD : 'postgres')));
+$db_password = getenv('DB_PASSWORD') ?: ($_ENV['DB_PASSWORD'] ?? ($_SERVER['DB_PASSWORD'] ?? (defined('DB_PASSWORD') ? DB_PASSWORD : '1234')));
 
 $pdo = null;
 

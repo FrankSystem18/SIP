@@ -1,2 +1,14 @@
-# Denegar acceso directo - los archivos se sirven via download.php
+# =============================================================
+# CAPA 4 — Blindaje del subdirectorio uploads/documentos
+# Bloquea la ejecución de scripts y el acceso directo.
+# =============================================================
+
+# -- 4a. Bloquear ejecución de scripts PHP y otros lenguajes --
+<FilesMatch "\.(php|php3|php4|php5|php7|php8|phtml|pl|py|jsp|asp|aspx|sh|cgi|exe|bat|cmd)$">
+    Order Allow,Deny
+    Deny from all
+</FilesMatch>
+
+# -- 4b. Denegar acceso directo - los archivos se sirven via download.php --
+Options -Indexes
 Deny from all

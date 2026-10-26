@@ -1,2 +1,18 @@
-# Denegar acceso directo a todos los archivos
+# =============================================================
+# CAPA 4 — Blindaje del directorio de subidas
+# Bloquea la ejecución de scripts y el acceso directo a archivos.
+# Los documentos se sirven EXCLUSIVAMENTE a través de
+# controlador/descargar_documento.php con validación de sesión.
+# =============================================================
+
+# -- 4a. Bloquear ejecución de scripts PHP y otros lenguajes --
+# Aplica para cualquier archivo dentro de uploads/ y subcarpetas.
+<FilesMatch "\.(php|php3|php4|php5|php7|php8|phtml|pl|py|jsp|asp|aspx|sh|cgi|exe|bat|cmd)$">
+    Order Allow,Deny
+    Deny from all
+</FilesMatch>
+
+# -- 4b. Denegar acceso directo a todos los archivos --
+# Los controladores PHP gestionan las descargas con autenticación.
+Options -Indexes
 Deny from all

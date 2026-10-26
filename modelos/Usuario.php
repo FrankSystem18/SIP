@@ -140,8 +140,62 @@ class Usuario
         ]);
     }
 
+    // ============================================================
+    // CAPA 3 — Prevención de duplicados
+    // ============================================================
+
+    /**
+     * Verifica si ya existe un usuario con el mismo email o cédula (tipo+número).
+     *
+     * @param  PDO         $pdo
+     * @param  string      $email   Correo electrónico a comprobar.
+     * @param  string      $tipoCi  Tipo de documento (V, E, J, etc.).
+     * @param  string      $numDoc  Número de documento a comprobar.
+     * @param  int|null    $excluirId  ID de usuario a excluir (para actualizaciones).
+     * @return array{email: bool, cedula: bool}
+     *         'email'  => true si el correo ya está en uso.
+     *         'cedula' => true si la cédula ya está en uso.
+     */
+    public static function existeDuplicado(
+        PDO $pdo,
+        string $email,
+        string $tipoCi,
+        string $numDoc,
+        ?int $excluirId = null
+    ): array {
+        $resultado = ['email' => false, 'cedula' => false];
+
+        $excluirSql = $excluirId !== null ? 'AND id <> :excluir_id' : '';
+        $params     = [
+            ':email' => strtolower(trim($email)),
+            ':tipo'  => strtoupper(trim($tipoCi)),
+            ':ndoc'  => trim($numDoc),
+        ];
+        if ($excluirId !== null) {
+            $params[':excluir_id'] = $excluirId;
+        }
+
+        // Verificar email
+        $sqlEmail = "SELECT 1 FROM usuarios WHERE email = :email $excluirSql LIMIT 1";
+        $stmtEmail = $pdo->prepare($sqlEmail);
+        $stmtEmail->execute(array_filter($params, fn($k) => in_array($k, [':email', ':excluir_id'], true), ARRAY_FILTER_USE_KEY));
+        $resultado['email'] = (bool) $stmtEmail->fetchColumn();
+
+        // Verificar cédula (tipo + número de documento)
+        $sqlCi = "SELECT 1 FROM usuarios WHERE tipo_cedula = :tipo AND numero_documento = :ndoc $excluirSql LIMIT 1";
+        $stmtCi = $pdo->prepare($sqlCi);
+        $stmtCi->execute(array_filter($params, fn($k) => in_array($k, [':tipo', ':ndoc', ':excluir_id'], true), ARRAY_FILTER_USE_KEY));
+        $resultado['cedula'] = (bool) $stmtCi->fetchColumn();
+
+        return $resultado;
+    }
+
+
     /**
      * Registra un nuevo usuario y retorna su ID generado.
+     *
+     * @throws RuntimeException Con mensaje claro si hay duplicado de cédula o correo,
+     *                          o si ocurre otra violación de restricción única.
      */
     public static function crear(PDO $pdo, array $datos): int
     {
@@ -149,25 +203,61 @@ class Usuario
         $numDoc  = trim($datos['numero_documento'] ?? '');
         $ciLimpia = preg_replace('/\D/', '', $numDoc) ?: '0';
 
+        // ---- Prevención de duplicados (verificación previa al INSERT) ----
+        // Detectamos conflictos antes de llegar a la BD para dar mensajes
+        // más claros que los que retorna PostgreSQL.
+        $duplicados = self::existeDuplicado($pdo, $datos['email'] ?? '', $tipoDoc, $numDoc);
+        if ($duplicados['cedula']) {
+            throw new \RuntimeException(
+                'Ya existe un usuario registrado con la cédula ' . $tipoDoc . '-' . $numDoc . '.'
+            );
+        }
+        if ($duplicados['email']) {
+            throw new \RuntimeException(
+                'El correo electrónico «' . ($datos['email'] ?? '') . '» ya está registrado.'
+            );
+        }
+
         $sql = "INSERT INTO usuarios (tipo_cedula, numero_documento, cedula, nombres, apellidos, email, password, rol_id, sede_id, estatus, estado_aspirante)
                 VALUES (:tipo, :ndoc, :ci, :nom, :ape, :mail, :pass, :rol, :sede, :estatus, :estado_asp)
                 RETURNING id";
 
-        $stmt = $pdo->prepare($sql);
-        $stmt->execute([
-            ':tipo'       => $tipoDoc,
-            ':ndoc'       => $numDoc,
-            ':ci'         => $ciLimpia,
-            ':nom'        => trim($datos['nombres'] ?? 'Pendiente'),
-            ':ape'        => trim($datos['apellidos'] ?? 'Pendiente'),
-            ':mail'       => strtolower(trim($datos['email'] ?? '')),
-            ':pass'       => password_hash($datos['password'], PASSWORD_DEFAULT),
-            ':rol'        => (int) ($datos['rol_id'] ?? 5),
-            ':sede'       => !empty($datos['sede_id']) ? (int) $datos['sede_id'] : null,
-            ':estatus'    => $datos['estatus'] ?? 'Activo',
-            ':estado_asp' => $datos['estado_aspirante'] ?? 'Admitido',
-        ]);
+        try {
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute([
+                ':tipo'       => $tipoDoc,
+                ':ndoc'       => $numDoc,
+                ':ci'         => $ciLimpia,
+                ':nom'        => trim($datos['nombres'] ?? 'Pendiente'),
+                ':ape'        => trim($datos['apellidos'] ?? 'Pendiente'),
+                ':mail'       => strtolower(trim($datos['email'] ?? '')),
+                ':pass'       => password_hash($datos['password'], PASSWORD_DEFAULT),
+                ':rol'        => (int) ($datos['rol_id'] ?? 5),
+                ':sede'       => !empty($datos['sede_id']) ? (int) $datos['sede_id'] : null,
+                ':estatus'    => $datos['estatus'] ?? 'Activo',
+                ':estado_asp' => $datos['estado_aspirante'] ?? 'Admitido',
+            ]);
 
-        return (int) $stmt->fetchColumn();
+            return (int) $stmt->fetchColumn();
+
+        } catch (\PDOException $e) {
+            // SQLSTATE 23505 = unique_violation en PostgreSQL
+            // Capturamos como segunda línea de defensa (race condition o
+            // registros creados desde otro hilo entre la verificación y el INSERT).
+            if ($e->getCode() === '23505') {
+                $msg = $e->getMessage();
+                // Intentamos inferir qué campo causó la violación
+                if (stripos($msg, 'email') !== false) {
+                    throw new \RuntimeException('El correo electrónico ya está registrado en el sistema.');
+                }
+                if (stripos($msg, 'cedula') !== false || stripos($msg, 'numero_documento') !== false) {
+                    throw new \RuntimeException('Ya existe un usuario con esa cédula/documento de identidad.');
+                }
+                throw new \RuntimeException('Datos duplicados: ya existe un registro con esa información.');
+            }
+            // Otro tipo de error de BD: relanzar para que el controlador lo maneje
+            throw $e;
+        }
     }
 }
+
